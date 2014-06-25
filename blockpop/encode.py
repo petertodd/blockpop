@@ -187,22 +187,23 @@ class BareMultisig_ScriptEncoder(ScriptEncoder):
 
         chunk_ctrl = blockpop.ChunkControl(skip_num=0, pubkey_steganography=self.pubkey_steganography)
 
-        while not chunk_ctrl.done and len(pubkeys) < self.max_pubkeys - len(valid_pubkeys):
+        while not chunk_generator.done and len(pubkeys) < self.max_pubkeys - len(valid_pubkeys):
 
             # The last data pubkey is handled specially using the requested
             # next_chunk_ctrl.
             if len(pubkeys) == self.max_pubkeys - len(valid_pubkeys) - 1:
                 chunk_ctrl = next_chunk_ctrl
 
-                # If the skip bit hasn't been set we need to skip past the
+                # If the end_script bit hasn't been set we need to skip past the
                 # non-valid pubkeys.
-                if not chunk_ctrl.skip:
+                if not chunk_ctrl.end_script:
                     chunk_ctrl.skip_num += len(valid_pubkeys)
 
-            chunk = chunk_generator.get(self.max_length, chunk_ctrl, min_length=self.min_length)
+            chunk = chunk_generator.get(self.min_length, self.max_length, chunk_ctrl)
+
             pubkeys.append(chunk)
 
-        pubkeys = valid_pubkeys + pubkeys
+        pubkeys = valid_pubkeys + list(reversed(pubkeys))
 
         return CScript([self.m] + pubkeys + [len(pubkeys), OP_CHECKMULTISIG])
 
@@ -215,7 +216,7 @@ def encode_all_op_return(buf, key):
 
     # Setup iv
     iv_push = b'iv'
-    txouts.append(CTxOut(bytes(chunk_ctrl)[0], CScript([OP_RETURN, iv_push])))
+    txouts.append(CTxOut(int(chunk_ctrl), CScript([OP_RETURN, iv_push])))
 
     chunk_ctrl.skip_num = 0
 
@@ -236,27 +237,32 @@ def encode_all_op_return(buf, key):
 
 def encode_P2SH_encoding(buf, key, valid_pubkey):
     txouts = []
-    p2sh_redeemScripts = []
+    txins = []
 
-    # First push needs to be skipped as it stores the iv
-    chunk_ctrl = blockpop.ChunkControl(txout_txin_mode=1, skip_num=1)
+    # First push needs to be skipped as it stores the iv, also we're going to
+    # the txin side of the tx.
+    chunk_ctrl = blockpop.ChunkControl(txout_txin_mode=0, skip_num=0, open_p2sh=1,
+                                       pubkey_steganography=1)
 
     # Setup iv
     iv_push = b'iv'
-    txouts.append(CTxOut(bytes(chunk_ctrl)[0], CScript([OP_RETURN, iv_push])))
+    txouts.append(CTxOut(int(chunk_ctrl), CScript([OP_RETURN, iv_push])))
 
     chunk_ctrl.skip_num = 0
 
     chunk_generator = ChunkGenerator(io.BytesIO(buf), cipher=blockpop.AESCipher(key, Hash(iv_push)[0:16]))
 
-    script_encoder = BareMultisig_ScriptEncoder(valid_pubkey_generator=lambda:[valid_pubkey])
+    script_encoder = BareMultisig_ScriptEncoder(valid_pubkey_generator=lambda:[valid_pubkey],
+                                                pubkey_steganography=True,
+                                                min_length=33, max_length=33)
 
-    chunk_ctrl.pubkey_steganography = True
-    while not chunk_ctrl.done:
-        scriptPubKey = script_encoder(chunk_generator, chunk_ctrl)
+    while not chunk_generator.done:
+        next_chunk_ctrl = blockpop.ChunkControl(txout_txin_mode=0, pubkey_steganography=1,
+                                                end_script=1, open_p2sh=1)
+        redeemScript = script_encoder(chunk_generator, next_chunk_ctrl)
 
-        txout = CTxOut(0, scriptPubKey)
+        txin = CTxIn(COutPoint(), CScript([redeemScript]))
 
-        txouts.append(txout)
+        txins.append(txin)
 
-    return CTransaction([], txouts)
+    return CTransaction(txins, txouts)

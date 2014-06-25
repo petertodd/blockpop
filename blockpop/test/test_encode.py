@@ -71,7 +71,7 @@ class Test(unittest.TestCase):
 
         key = b'\x00'*32
         buf = b'\x00'*40 + b'\xff'*40 + b'hi!'
-        tx = blockpop.encode.encode_all_op_return(buf, key)
+        tx = blockpop.encode.encode_P2SH_encoding(buf, key, valid_pubkey=b'\x02' + b'\x00'*33)
         #print(tx)
 
         extractor = blockpop.SimpleTxDataExtractor(tx, key)

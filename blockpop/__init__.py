@@ -16,6 +16,7 @@ import ctypes
 import Crypto.Cipher.AES
 
 import bitcoin.core
+import bitcoin.core.script
 
 """PoP data extraction
 
@@ -156,9 +157,7 @@ class BaseTxDataExtractor:
             txout_iter = iter(tx.vout[start_idx:])
             txin_iter = iter(tx.vin[start_idx:])
 
-            def do_script(script, chunk_ctrl):
-
-
+            def do_script(script):
                 for pushdata in reversed(extract_script_pushes(script)):
                     if chunk_ctrl.done:
                         break
@@ -168,19 +167,22 @@ class BaseTxDataExtractor:
                         continue
 
                     elif chunk_ctrl.open_p2sh:
-                        yield from do_script(CScript(pushdata), chunk_ctrl)
+                        chunk_ctrl.open_p2sh = 0 # or we'll do this again recursively!
+                        yield from do_script(bitcoin.core.script.CScript(pushdata))
 
                     else:
                         yield pushdata
+                        if chunk_ctrl.end_script:
+                            break
 
             while True:
                 if chunk_ctrl.txout_txin_mode:
                     # txout scriptPubKey
-                    yield from do_script(next(txout_iter).scriptPubKey, chunk_ctrl)
+                    yield from do_script(next(txout_iter).scriptPubKey)
 
                 else:
                     # txin scriptSig
-                    yield from do_script(next(txin_iter).scriptSig, chunk_ctrl)
+                    yield from do_script(next(txin_iter).scriptSig)
 
         for push in do_tx(self.tx, start_idx):
             if chunk_ctrl.pubkey_steganography:
@@ -189,6 +191,7 @@ class BaseTxDataExtractor:
             plaintext = self.cipher.decrypt(push)
 
             chunk_ctrl = ChunkControl.from_buffer(bytearray(plaintext[0:1]))
+
             if chunk_ctrl.done:
                 plaintext = plaintext[:len(plaintext)-chunk_ctrl.padding_length]
                 yield plaintext[1:]
