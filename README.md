@@ -1,18 +1,19 @@
 blockpop
 ========
 
+Proof-of-publication with the blockchain
+
 requirements
 ============
-python3 >= 3.4.1
-pycrypto >= 2.6.1
+* python3 >= 3.4.1
+* pycrypto >= 2.6.1
 
 easy installation
 =============
+```
 pip install -r requirements.txt
 cd lib && python setup.py install
-
-Proof-of-publication with the blockchain
-
+```
 
 Unit Tests
 ==========
